@@ -4,7 +4,7 @@
 >
 > ![Juiced effects](juiced_effects.png)
 >
-> A visual-effects pass on Neothesia, living on the [`juice`](https://github.com/bosman-solutions/Neothesia/tree/juice) branch:
+> A visual-effects pass on Neothesia, living on this fork's `master` branch:
 >
 > - **Gold keyline**: a warm glowing edge across the top of the keyboard.
 > - **Flares**: a flat, white-hot bloom wherever a key is struck.
@@ -16,7 +16,7 @@
 > **Install** (Arch; other distros print the deps they need). Builds from source into `~/.local` as `neothesia-juice`, alongside any stock Neothesia:
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/bosman-solutions/Neothesia/juice/install.sh | bash
+> curl -fsSL https://raw.githubusercontent.com/bosman-solutions/Neothesia/master/install.sh | bash
 > ```
 >
 > Rerun to update; `install.sh --uninstall` to remove.

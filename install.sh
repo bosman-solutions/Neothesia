@@ -6,13 +6,13 @@
 #   ./install.sh --uninstall  remove binary, desktop entry, icon (keeps source)
 #
 # One-liner on a fresh box:
-#   curl -fsSL https://raw.githubusercontent.com/bosman-solutions/Neothesia/juice/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/bosman-solutions/Neothesia/master/install.sh | bash
 #
 # Env overrides: NEOTHESIA_REPO, NEOTHESIA_BRANCH, NEOTHESIA_SRC
 set -euo pipefail
 
 REPO="${NEOTHESIA_REPO:-https://github.com/bosman-solutions/Neothesia.git}"
-BRANCH="${NEOTHESIA_BRANCH:-juice}"
+BRANCH="${NEOTHESIA_BRANCH:-master}"
 SRC="${NEOTHESIA_SRC:-$HOME/.local/src/neothesia-juice}"
 
 NAME="neothesia-juice"
