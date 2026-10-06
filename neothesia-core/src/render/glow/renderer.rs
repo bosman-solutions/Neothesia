@@ -44,8 +44,9 @@ const FLOW_GRIP: f32 = 1.4; // how fast motes hand over to the flow, 1/s
 
 // Streak: slow comet sliver that glides up the currents like an ember.
 const STREAK_CHANCE: f32 = 0.45; // per note-on
-const STREAK_LEN: (f32, f32) = (60.0, 130.0); // px
-const STREAK_WIDTH: f32 = 9.0; // px
+const STREAK_LEN: (f32, f32) = (28.0, 60.0); // px
+const STREAK_WIDTH: f32 = 7.0; // px
+const STREAK_WARMTH: f32 = 0.8; // 0 = note color, 1 = ember gold
 const STREAK_LIFE: (f32, f32) = (1.8, 3.2); // s
 const STREAK_LIFT: f32 = 110.0; // px/s, rises faster than dust
 
@@ -383,12 +384,12 @@ impl GlowRenderer {
                     let speed = (p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1]).sqrt().max(1.0);
                     let dir = [p.vel[0] / speed, p.vel[1] / speed];
                     let len = p.size;
-                    let center = [p.pos[0] - dir[0] * len * 0.4, p.pos[1] - dir[1] * len * 0.4];
+                    let center = p.pos;
                     let fade = (age * 6.0).min(1.0) * t.powf(0.9);
                     inst.push(GlowInstance {
                         position: [center[0] - len / 2.0, center[1] - STREAK_WIDTH / 2.0],
                         size: [len, STREAK_WIDTH],
-                        color: with_intensity(p.color, fade * 1.5),
+                        color: with_intensity(p.color, fade * 1.3),
                         params: [kind::STREAK, age, p.seed, dir[1].atan2(dir[0])],
                     });
                 }
@@ -454,7 +455,6 @@ impl GlowRenderer {
         }
         let cx = k.x + k.w / 2.0;
         let life = self.rng.range(STREAK_LIFE.0, STREAK_LIFE.1);
-        let warm = mix3(k.color, KEYLINE_COLOR, DUST_WARMTH);
         self.particles.push(Particle {
             kind: PKind::Streak,
             pos: [cx, k.y - 4.0],
@@ -464,7 +464,7 @@ impl GlowRenderer {
             life,
             max_life: life,
             size: self.rng.range(STREAK_LEN.0, STREAK_LEN.1),
-            color: whiten(warm, 0.45),
+            color: mix3(k.color, KEYLINE_COLOR, STREAK_WARMTH),
             seed: self.rng.next(),
         });
     }

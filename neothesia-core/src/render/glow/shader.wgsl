@@ -135,15 +135,17 @@ fn keyline(uv: vec2<f32>, c: vec4<f32>, reach: f32) -> vec3<f32> {
     return (c.rgb * (up * 0.55 + down * 0.5) + mix(c.rgb, WHITE, 0.6) * core * 1.4) * fade * c.a;
 }
 
-// Streak: a slow comet sliver. uv.x = 0 tail .. 1 head, thin across uv.y.
-fn streak(uv: vec2<f32>, c: vec4<f32>) -> vec3<f32> {
+// Ember: a glowing spindle. Hottest mid-body, fading at both ends,
+// warm all the way through (no bright head).
+fn streak(uv: vec2<f32>, c: vec4<f32>, seed: f32) -> vec3<f32> {
     let y = (uv.y - 0.5) * 2.0;
-    let taper = mix(0.15, 1.0, uv.x); // thin tail, full head
-    let across = exp(-(y / (0.35 * taper)) * (y / (0.35 * taper)));
-    let along = pow(uv.x, 1.6) * (1.0 - smoothstep(0.9, 1.0, uv.x));
-    let core = exp(-(y / (0.08 * taper)) * (y / (0.08 * taper)));
-    let head = exp(-pow((uv.x - 0.88) / 0.06, 2.0)) * exp(-y * y * 6.0);
-    return (c.rgb * across * along + WHITE * (core * along * 0.8 + head * 0.9)) * c.a;
+    let profile = pow(sin(3.14159 * uv.x), 1.4);          // 0 at ends, 1 mid
+    let w = max(profile, 0.02);
+    let across = exp(-(y / (0.55 * w)) * (y / (0.55 * w)));
+    let core = exp(-(y / (0.18 * w)) * (y / (0.18 * w)));
+    let flicker = 0.85 + 0.15 * sin(uv.x * 23.0 + seed * 40.0);
+    let hot = mix(c.rgb, vec3<f32>(1.0, 0.85, 0.6), 0.5);  // warm, not white
+    return (c.rgb * across * 0.7 + hot * core) * profile * flicker * c.a;
 }
 
 @fragment
@@ -156,7 +158,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         case 3: { rgb = beam(in.uv, in.quad_color, in.params.z); }
         case 4: { rgb = smoke(in.uv, in.quad_color, in.params.y, in.params.z); }
         case 5: { rgb = keyline(in.uv, in.quad_color, in.params.z); }
-        case 6: { rgb = streak(in.uv, in.quad_color); }
+        case 6: { rgb = streak(in.uv, in.quad_color, in.params.z); }
         default: { rgb = halo(in.uv, in.quad_color); }
     }
     return vec4<f32>(rgb, 0.0);

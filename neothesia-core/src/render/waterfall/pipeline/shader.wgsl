@@ -137,7 +137,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Outer glow.
     let pad = GLOW_PAD * view_uniform.scale;
-    let glow = select(0.0, exp(-sd / (pad * 0.35)) * 0.45, sd > 0.0);
+    // Soft-edged so it fades out before the padded quad ends (no boxes).
+    let edge = 1.0 - smoothstep(pad * 0.45, pad * 0.95, sd);
+    let glow = select(0.0, exp(-sd / (pad * 0.3)) * 0.4 * edge, sd > 0.0);
 
     let inside = 1.0 - smoothstep(-0.75, 0.75, sd);
 
