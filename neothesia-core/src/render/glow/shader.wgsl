@@ -125,6 +125,18 @@ fn smoke(uv: vec2<f32>, c: vec4<f32>, age: f32, seed: f32) -> vec3<f32> {
     return c.rgb * density * c.a;
 }
 
+// Keyline: razor-thin hot edge, long warm glow climbing upward,
+// short spill down onto the keys. `reach` = half quad height in px.
+fn keyline(uv: vec2<f32>, c: vec4<f32>, reach: f32) -> vec3<f32> {
+    let dy = (uv.y - 0.5) * 2.0 * reach; // px; negative = above the line
+    let ady = abs(dy);
+    let core = exp(-(dy / 1.6) * (dy / 1.6));
+    let up = exp(-ady / (reach * 0.22)) * select(0.0, 1.0, dy < 0.0);
+    let down = exp(-ady / 5.0) * select(0.0, 1.0, dy >= 0.0);
+    let fade = 1.0 - smoothstep(0.7, 1.0, ady / reach);
+    return (c.rgb * (up * 0.55 + down * 0.5) + mix(c.rgb, WHITE, 0.6) * core * 1.4) * fade * c.a;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let k = i32(round(in.params.x));
@@ -134,6 +146,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         case 2: { rgb = ring(in.uv, in.quad_color, in.params.y); }
         case 3: { rgb = beam(in.uv, in.quad_color, in.params.z); }
         case 4: { rgb = smoke(in.uv, in.quad_color, in.params.y, in.params.z); }
+        case 5: { rgb = keyline(in.uv, in.quad_color, in.params.w); }
         default: { rgb = halo(in.uv, in.quad_color); }
     }
     return vec4<f32>(rgb, 0.0);

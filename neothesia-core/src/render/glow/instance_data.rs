@@ -11,6 +11,7 @@ pub mod kind {
     pub const RING: f32 = 2.0;
     pub const BEAM: f32 = 3.0;
     pub const SMOKE: f32 = 4.0;
+    pub const KEYLINE: f32 = 5.0;
 }
 
 #[repr(C)]
