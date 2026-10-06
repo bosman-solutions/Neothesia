@@ -1,5 +1,5 @@
 mod instance_data;
-pub use instance_data::GlowInstance;
+pub use instance_data::{GlowInstance, kind};
 
 pub mod renderer;
 pub use renderer::GlowRenderer;
@@ -36,7 +36,23 @@ impl<'a> GlowPipeline {
 
         let ri_attrs = GlowInstance::attributes();
 
-        let target = wgpu_jumpstart::default_color_target_state(gpu.texture_format);
+        // Additive: light stacks, overlapping FX bloom into each other.
+        let target = wgpu::ColorTargetState {
+            format: gpu.texture_format,
+            blend: Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            }),
+            write_mask: wgpu::ColorWrites::ALL,
+        };
 
         let render_pipeline = gpu
             .device
