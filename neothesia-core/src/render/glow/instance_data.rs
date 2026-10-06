@@ -7,8 +7,10 @@ use bytemuck::{Pod, Zeroable};
 pub mod kind {
     pub const HALO: f32 = 0.0;
     pub const SPARK: f32 = 1.0;
+    #[allow(dead_code)] // shockwave, parked; shader still supports it
     pub const RING: f32 = 2.0;
     pub const BEAM: f32 = 3.0;
+    pub const SMOKE: f32 = 4.0;
 }
 
 #[repr(C)]

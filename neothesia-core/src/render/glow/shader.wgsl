@@ -85,6 +85,46 @@ fn beam(uv: vec2<f32>, c: vec4<f32>, seed: f32) -> vec3<f32> {
     return (c.rgb * column + WHITE * filament * 0.6) * fall * c.a;
 }
 
+// ---- smoke ----------------------------------------------------------------
+fn hash2(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+
+fn vnoise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = hash2(i);
+    let b = hash2(i + vec2<f32>(1.0, 0.0));
+    let c = hash2(i + vec2<f32>(0.0, 1.0));
+    let d = hash2(i + vec2<f32>(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+fn fbm(p_in: vec2<f32>) -> f32 {
+    var p = p_in;
+    var v = 0.0;
+    var amp = 0.5;
+    for (var i = 0; i < 4; i++) {
+        v += amp * vnoise(p);
+        p = p * 2.03 + vec2<f32>(1.7, 9.2);
+        amp *= 0.5;
+    }
+    return v;
+}
+
+// Wispy puff: noise-carved density inside a soft mask, churning with age.
+fn smoke(uv: vec2<f32>, c: vec4<f32>, age: f32, seed: f32) -> vec3<f32> {
+    let p = uv - 0.5;
+    let d = length(p) * 2.0;
+    let mask = 1.0 - smoothstep(0.2, 1.0, d);
+    let q = p * 3.0 + vec2<f32>(seed * 17.0, seed * 31.0);
+    let warp = fbm(q + vec2<f32>(0.0, age * 1.5));
+    let n = fbm(q * 1.4 + warp * 1.8 - vec2<f32>(0.0, age * 2.0));
+    let density = smoothstep(0.35, 0.85, n) * mask;
+    return c.rgb * density * c.a;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let k = i32(round(in.params.x));
@@ -93,6 +133,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         case 1: { rgb = spark(in.uv, in.quad_color); }
         case 2: { rgb = ring(in.uv, in.quad_color, in.params.y); }
         case 3: { rgb = beam(in.uv, in.quad_color, in.params.z); }
+        case 4: { rgb = smoke(in.uv, in.quad_color, in.params.y, in.params.z); }
         default: { rgb = halo(in.uv, in.quad_color); }
     }
     return vec4<f32>(rgb, 0.0);
