@@ -16,6 +16,10 @@ use super::{GlowInstance, GlowPipeline, kind};
 // ---- tuning knobs ---------------------------------------------------------
 const MAX_PARTICLES: usize = 20_000;
 
+// Global FX speed. Scales sim time for every particle, flow, and flash:
+// >1 = faster motion and shorter lives, same shapes. 1.0 = original pace.
+const FX_TEMPO: f32 = 1.7;
+
 // Keyline: always-on glowing edge along the top of the keyboard.
 const KEYLINE: bool = true;
 const KEYLINE_COLOR: [f32; 3] = [1.0, 0.62, 0.18]; // linear warm gold
@@ -242,7 +246,7 @@ impl GlowRenderer {
 
         let k = *k;
         let cx = k.x + k.w / 2.0;
-        let flash = (-k.hold_time * FLASH_DECAY).exp();
+        let flash = (-k.hold_time * FLASH_DECAY * FX_TEMPO).exp();
 
         if note_on {
             for _ in 0..DUST_BURST {
@@ -295,7 +299,8 @@ impl GlowRenderer {
             .last_frame
             .map(|t| (now - t).as_secs_f32())
             .unwrap_or(0.0)
-            .min(0.05);
+            .min(0.05)
+            * FX_TEMPO;
         self.last_frame = Some(now);
         self.clock += dt;
 
