@@ -12,6 +12,7 @@ pub mod kind {
     pub const BEAM: f32 = 3.0;
     pub const SMOKE: f32 = 4.0;
     pub const KEYLINE: f32 = 5.0;
+    pub const STREAK: f32 = 6.0;
 }
 
 #[repr(C)]
@@ -21,7 +22,7 @@ pub struct GlowInstance {
     pub size: [f32; 2],
     /// Linear RGB + intensity in alpha. Blending is additive.
     pub color: [f32; 4],
-    /// x: kind, y: age 0..1, z: seed, w: reserved
+    /// x: kind, y: age 0..1, z: seed (keyline: reach px), w: rotation rad
     pub params: [f32; 4],
 }
 

@@ -27,18 +27,16 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(vertex: Vertex, quad: QuadInstance) -> VertexOutput {
-    var quad_position = quad.q_position * view_uniform.scale;
-    var quad_size = quad.size * view_uniform.scale;
-
-    var i_transform: mat4x4<f32> = mat4x4<f32>(
-        vec4<f32>(quad_size.x, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, quad_size.y, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 1.0, 0.0),
-        vec4<f32>(quad_position, 0.0, 1.0)
-    );
+    // Rotate the quad around its center by params.w (radians).
+    let center = quad.q_position + quad.size * 0.5;
+    let local = (vertex.position - 0.5) * quad.size;
+    let cs = cos(quad.params.w);
+    let sn = sin(quad.params.w);
+    let rotated = vec2<f32>(local.x * cs - local.y * sn, local.x * sn + local.y * cs);
+    let world = (center + rotated) * view_uniform.scale;
 
     var out: VertexOutput;
-    out.position = view_uniform.transform * i_transform * vec4<f32>(vertex.position, 0.0, 1.0);
+    out.position = view_uniform.transform * vec4<f32>(world, 0.0, 1.0);
     out.uv = vertex.position;
     out.quad_color = quad.color;
     out.params = quad.params;
@@ -137,6 +135,17 @@ fn keyline(uv: vec2<f32>, c: vec4<f32>, reach: f32) -> vec3<f32> {
     return (c.rgb * (up * 0.55 + down * 0.5) + mix(c.rgb, WHITE, 0.6) * core * 1.4) * fade * c.a;
 }
 
+// Streak: a slow comet sliver. uv.x = 0 tail .. 1 head, thin across uv.y.
+fn streak(uv: vec2<f32>, c: vec4<f32>) -> vec3<f32> {
+    let y = (uv.y - 0.5) * 2.0;
+    let taper = mix(0.15, 1.0, uv.x); // thin tail, full head
+    let across = exp(-(y / (0.35 * taper)) * (y / (0.35 * taper)));
+    let along = pow(uv.x, 1.6) * (1.0 - smoothstep(0.9, 1.0, uv.x));
+    let core = exp(-(y / (0.08 * taper)) * (y / (0.08 * taper)));
+    let head = exp(-pow((uv.x - 0.88) / 0.06, 2.0)) * exp(-y * y * 6.0);
+    return (c.rgb * across * along + WHITE * (core * along * 0.8 + head * 0.9)) * c.a;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let k = i32(round(in.params.x));
@@ -146,7 +155,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         case 2: { rgb = ring(in.uv, in.quad_color, in.params.y); }
         case 3: { rgb = beam(in.uv, in.quad_color, in.params.z); }
         case 4: { rgb = smoke(in.uv, in.quad_color, in.params.y, in.params.z); }
-        case 5: { rgb = keyline(in.uv, in.quad_color, in.params.w); }
+        case 5: { rgb = keyline(in.uv, in.quad_color, in.params.z); }
+        case 6: { rgb = streak(in.uv, in.quad_color); }
         default: { rgb = halo(in.uv, in.quad_color); }
     }
     return vec4<f32>(rgb, 0.0);

@@ -27,11 +27,27 @@ const FLARE_W: f32 = 5.0; // x key width
 const FLARE_H: f32 = 60.0; // px
 const FLASH_DECAY: f32 = 5.0; // note-on flash falloff, 1/s
 
-// Dust: fine glitter, the star of the show.
-const DUST_BURST: usize = 45; // per note-on
-const DUST_PER_SEC: f32 = 50.0; // per held key
-const DUST_SWIRL: f32 = 140.0; // lateral wander, px/s^2
+// Dust: fine glitter carried by the flow field.
+const DUST_BURST: usize = 60; // per note-on
+const DUST_PER_SEC: f32 = 35.0; // per held key
+const DUST_BURST_SPEED: (f32, f32) = (20.0, 110.0); // px/s, gentle puff
+const DUST_LIFE: (f32, f32) = (2.5, 5.0); // s
 const DUST_WARMTH: f32 = 0.55; // 0 = note color, 1 = keyline gold
+
+// Flow: curl-noise "air". Divergence-free, so dust swirls into clouds and
+// wisps instead of clumping or scattering.
+const FLOW_SCALE: f32 = 1.0 / 170.0; // smaller = bigger eddies
+const FLOW_SPEED: f32 = 75.0; // px/s, swirl strength
+const FLOW_EVOLVE: f32 = 0.12; // how fast the currents change
+const BUOYANCY: f32 = 40.0; // px/s, steady updraft
+const FLOW_GRIP: f32 = 1.4; // how fast motes hand over to the flow, 1/s
+
+// Streak: slow comet sliver that glides up the currents like an ember.
+const STREAK_CHANCE: f32 = 0.45; // per note-on
+const STREAK_LEN: (f32, f32) = (60.0, 130.0); // px
+const STREAK_WIDTH: f32 = 9.0; // px
+const STREAK_LIFE: (f32, f32) = (1.8, 3.2); // s
+const STREAK_LIFT: f32 = 110.0; // px/s, rises faster than dust
 
 // Parked effects (set > 0 / true to bring back).
 const BURST_SPARKS: usize = 0;
@@ -67,6 +83,7 @@ enum PKind {
     Spark,
     Smoke,
     Dust,
+    Streak,
 }
 
 #[derive(Clone, Copy)]
@@ -99,6 +116,41 @@ impl Rng {
     fn range(&mut self, lo: f32, hi: f32) -> f32 {
         lo + (hi - lo) * self.next()
     }
+}
+
+// ---- flow field -------------------------------------------------------------
+
+fn hash2(x: i32, y: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841);
+    h = (h ^ (h >> 13)).wrapping_mul(0x5bd1_e995);
+    h ^= h >> 15;
+    (h & 0x00ff_ffff) as f32 / 16_777_216.0
+}
+
+fn vnoise(x: f32, y: f32) -> f32 {
+    let (xi, yi) = (x.floor(), y.floor());
+    let (xf, yf) = (x - xi, y - yi);
+    let (u, v) = (xf * xf * (3.0 - 2.0 * xf), yf * yf * (3.0 - 2.0 * yf));
+    let (xi, yi) = (xi as i32, yi as i32);
+    let a = hash2(xi, yi);
+    let b = hash2(xi + 1, yi);
+    let c = hash2(xi, yi + 1);
+    let d = hash2(xi + 1, yi + 1);
+    (a + (b - a) * u) + ((c + (d - c) * u) - (a + (b - a) * u)) * v
+}
+
+/// Stream function: two octaves, drifting in time.
+fn potential(x: f32, y: f32, t: f32) -> f32 {
+    vnoise(x + t, y - t * 0.7) + 0.5 * vnoise(x * 2.1 - t * 1.3, y * 2.1 + 5.2)
+}
+
+/// Curl of the potential: a divergence-free velocity field, unit-ish scale.
+fn curl(px: f32, py: f32, t: f32) -> [f32; 2] {
+    let (x, y) = (px * FLOW_SCALE, py * FLOW_SCALE);
+    let e = 0.05;
+    let dpdx = (potential(x + e, y, t) - potential(x - e, y, t)) / (2.0 * e);
+    let dpdy = (potential(x, y + e, t) - potential(x, y - e, t)) / (2.0 * e);
+    [dpdy, -dpdx]
 }
 
 fn mix3(a: [f32; 4], b: [f32; 3], t: f32) -> [f32; 4] {
@@ -195,6 +247,7 @@ impl GlowRenderer {
             for _ in 0..DUST_BURST {
                 self.spawn_dust(&k, true);
             }
+            self.spawn_streak(&k);
             self.spawn_burst(&k);
             for _ in 0..SMOKE_PUFFS {
                 self.spawn_smoke(&k);
@@ -271,19 +324,26 @@ impl GlowRenderer {
         }
 
         let clock = self.clock;
+        let flow_t = clock * FLOW_EVOLVE;
         self.particles.retain_mut(|p| {
             p.life -= dt;
             if p.life <= 0.0 {
                 return false;
             }
-            if p.kind == PKind::Dust {
-                // Lazy curl: each mote wanders on its own phase.
-                let ph = p.seed * 40.0 + clock * 1.7 + p.pos[1] * 0.012;
-                p.vel[0] += ph.sin() * DUST_SWIRL * dt;
+            if matches!(p.kind, PKind::Dust | PKind::Streak) {
+                // Ride the air: relax velocity toward the local flow + updraft.
+                // Shared field => neighbours move together => clouds and wisps.
+                // `accel` = updraft (px/s, up), `drag` = grip multiplier.
+                let f = curl(p.pos[0], p.pos[1], flow_t);
+                let target = [f[0] * FLOW_SPEED, f[1] * FLOW_SPEED - p.accel];
+                let k = 1.0 - (-FLOW_GRIP * p.drag * dt).exp();
+                p.vel[0] += (target[0] - p.vel[0]) * k;
+                p.vel[1] += (target[1] - p.vel[1]) * k;
+            } else {
+                let damp = (-p.drag * dt).exp();
+                p.vel[0] *= damp;
+                p.vel[1] = p.vel[1] * damp + p.accel * dt;
             }
-            let damp = (-p.drag * dt).exp();
-            p.vel[0] *= damp;
-            p.vel[1] = p.vel[1] * damp + p.accel * dt;
             p.pos[0] += p.vel[0] * dt;
             p.pos[1] += p.vel[1] * dt;
             true
@@ -298,7 +358,7 @@ impl GlowRenderer {
                 position: [-8000.0, y - h / 2.0],
                 size: [24000.0, h],
                 color: [KEYLINE_COLOR[0], KEYLINE_COLOR[1], KEYLINE_COLOR[2], KEYLINE_INTENSITY],
-                params: [kind::KEYLINE, 0.0, 0.0, KEYLINE_REACH],
+                params: [kind::KEYLINE, 0.0, KEYLINE_REACH, 0.0],
             });
         }
 
@@ -316,6 +376,20 @@ impl GlowRenderer {
                         size: [s, s],
                         color: with_intensity(p.color, fade * twinkle * 1.8),
                         params: [kind::SPARK, age, p.seed, 0.0],
+                    });
+                }
+                PKind::Streak => {
+                    // Point along travel; head at the particle, tail trailing.
+                    let speed = (p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1]).sqrt().max(1.0);
+                    let dir = [p.vel[0] / speed, p.vel[1] / speed];
+                    let len = p.size;
+                    let center = [p.pos[0] - dir[0] * len * 0.4, p.pos[1] - dir[1] * len * 0.4];
+                    let fade = (age * 6.0).min(1.0) * t.powf(0.9);
+                    inst.push(GlowInstance {
+                        position: [center[0] - len / 2.0, center[1] - STREAK_WIDTH / 2.0],
+                        size: [len, STREAK_WIDTH],
+                        color: with_intensity(p.color, fade * 1.5),
+                        params: [kind::STREAK, age, p.seed, dir[1].atan2(dir[0])],
                     });
                 }
                 PKind::Smoke => {
@@ -350,26 +424,47 @@ impl GlowRenderer {
         }
         let cx = k.x + k.w / 2.0;
         let (vx, vy) = if burst {
-            // Note-on: a soft spray, wider and quicker.
-            let a = self.rng.range(-PI + 0.5, -0.5);
-            let speed = self.rng.range(40.0, 260.0);
+            // Note-on: a gentle puff; the flow takes over within a second.
+            let a = self.rng.range(-PI + 0.4, -0.4);
+            let speed = self.rng.range(DUST_BURST_SPEED.0, DUST_BURST_SPEED.1);
             (a.cos() * speed, a.sin() * speed)
         } else {
-            // Held: a thin rising column of glitter.
-            (self.rng.range(-20.0, 20.0), self.rng.range(-170.0, -50.0))
+            // Held: a thin rising column feeding the cloud.
+            (self.rng.range(-15.0, 15.0), self.rng.range(-90.0, -40.0))
         };
-        let life = self.rng.range(1.4, 3.6);
+        let life = self.rng.range(DUST_LIFE.0, DUST_LIFE.1);
         let warm = mix3(k.color, KEYLINE_COLOR, DUST_WARMTH);
         self.particles.push(Particle {
             kind: PKind::Dust,
             pos: [cx + self.rng.range(-0.4, 0.4) * k.w, k.y - self.rng.range(0.0, 8.0)],
             vel: [vx, vy],
-            accel: -15.0,
-            drag: 1.1,
+            accel: BUOYANCY * self.rng.range(0.7, 1.3),
+            drag: self.rng.range(0.8, 1.2),
             life,
             max_life: life,
             size: self.rng.range(2.5, 6.0),
             color: whiten(warm, self.rng.range(0.2, 0.7)),
+            seed: self.rng.next(),
+        });
+    }
+
+    fn spawn_streak(&mut self, k: &KeyFx) {
+        if self.particles.len() >= MAX_PARTICLES || self.rng.next() > STREAK_CHANCE {
+            return;
+        }
+        let cx = k.x + k.w / 2.0;
+        let life = self.rng.range(STREAK_LIFE.0, STREAK_LIFE.1);
+        let warm = mix3(k.color, KEYLINE_COLOR, DUST_WARMTH);
+        self.particles.push(Particle {
+            kind: PKind::Streak,
+            pos: [cx, k.y - 4.0],
+            vel: [self.rng.range(-30.0, 30.0), -STREAK_LIFT * 1.5],
+            accel: STREAK_LIFT,
+            drag: 0.5, // loose grip: glides, curves slowly
+            life,
+            max_life: life,
+            size: self.rng.range(STREAK_LEN.0, STREAK_LEN.1),
+            color: whiten(warm, 0.45),
             seed: self.rng.next(),
         });
     }
