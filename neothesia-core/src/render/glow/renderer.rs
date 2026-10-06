@@ -20,6 +20,12 @@ const MAX_PARTICLES: usize = 20_000;
 // >1 = faster motion and shorter lives, same shapes. 1.0 = original pace.
 const FX_TEMPO: f32 = 1.7;
 
+// Ceiling: effects fade out and die by this fraction of window height above
+// the keyline. The keyboard is the bottom KEYBOARD_FRAC of the window.
+const FX_CEILING: f32 = 1.0 / 3.0;
+const KEYBOARD_FRAC: f32 = 0.2;
+const CEILING_FADE_START: f32 = 0.55; // fraction of the ceiling where fading begins
+
 // Keyline: always-on glowing edge along the top of the keyboard.
 const KEYLINE: bool = true;
 const KEYLINE_COLOR: [f32; 3] = [1.0, 0.62, 0.18]; // linear warm gold
@@ -35,7 +41,7 @@ const FLASH_DECAY: f32 = 5.0; // note-on flash falloff, 1/s
 const DUST_BURST: usize = 60; // per note-on
 const DUST_PER_SEC: f32 = 35.0; // per held key
 const DUST_BURST_SPEED: (f32, f32) = (20.0, 110.0); // px/s, gentle puff
-const DUST_LIFE: (f32, f32) = (2.5, 5.0); // s
+const DUST_LIFE: (f32, f32) = (1.6, 3.2); // s
 const DUST_WARMTH: f32 = 0.55; // 0 = note color, 1 = keyline gold
 
 // Flow: curl-noise "air". Divergence-free, so dust swirls into clouds and
@@ -331,18 +337,33 @@ impl GlowRenderer {
 
         let clock = self.clock;
         let flow_t = clock * FLOW_EVOLVE;
+        // Altitude above the keyline as a fraction of the ceiling (0..1+).
+        let key_y = self.keyline_y;
+        let ceiling = key_y.map(|y| (y / (1.0 - KEYBOARD_FRAC) * FX_CEILING).max(1.0));
+        let altitude = move |p: &Particle| match (key_y, ceiling) {
+            (Some(y), Some(c)) => (y - p.pos[1]) / c,
+            _ => 0.0,
+        };
         self.particles.retain_mut(|p| {
             p.life -= dt;
-            if p.life <= 0.0 {
+            if p.life <= 0.0 || altitude(p) >= 1.0 {
                 return false;
             }
             if matches!(p.kind, PKind::Dust | PKind::Streak) {
                 // Ride the air: relax velocity toward the local flow + updraft.
                 // Shared field => neighbours move together => clouds and wisps.
                 // `accel` = updraft (px/s, up), `drag` = grip multiplier.
+                let (lift, grip) = if p.kind == PKind::Streak {
+                    // Embers: lazy launch, then the updraft catches them and
+                    // they whip up and out.
+                    let age = 1.0 - p.life / p.max_life;
+                    (p.accel * (0.15 + 3.0 * age * age), p.drag * (0.5 + 2.5 * age))
+                } else {
+                    (p.accel, p.drag)
+                };
                 let f = curl(p.pos[0], p.pos[1], flow_t);
-                let target = [f[0] * FLOW_SPEED, f[1] * FLOW_SPEED - p.accel];
-                let k = 1.0 - (-FLOW_GRIP * p.drag * dt).exp();
+                let target = [f[0] * FLOW_SPEED, f[1] * FLOW_SPEED - lift];
+                let k = 1.0 - (-FLOW_GRIP * grip * dt).exp();
                 p.vel[0] += (target[0] - p.vel[0]) * k;
                 p.vel[1] += (target[1] - p.vel[1]) * k;
             } else {
@@ -369,6 +390,9 @@ impl GlowRenderer {
         }
 
         for p in &self.particles {
+            // Fade out approaching the ceiling.
+            let x = ((altitude(p) - CEILING_FADE_START) / (1.0 - CEILING_FADE_START)).clamp(0.0, 1.0);
+            let af = 1.0 - x * x * (3.0 - 2.0 * x);
             let t = p.life / p.max_life; // 1 -> 0
             let age = 1.0 - t;
             match p.kind {
@@ -380,7 +404,7 @@ impl GlowRenderer {
                     inst.push(GlowInstance {
                         position: [p.pos[0] - s / 2.0, p.pos[1] - s / 2.0],
                         size: [s, s],
-                        color: with_intensity(p.color, fade * twinkle * 1.8),
+                        color: with_intensity(p.color, af * fade * twinkle * 1.8),
                         params: [kind::SPARK, age, p.seed, 0.0],
                     });
                 }
@@ -388,13 +412,14 @@ impl GlowRenderer {
                     // Point along travel; head at the particle, tail trailing.
                     let speed = (p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1]).sqrt().max(1.0);
                     let dir = [p.vel[0] / speed, p.vel[1] / speed];
-                    let len = p.size;
+                    // Stretch with speed: short and fat at launch, long as it whips away.
+                    let len = p.size * (0.5 + speed / 220.0).min(2.2);
                     let center = p.pos;
                     let fade = (age * 6.0).min(1.0) * t.powf(0.9);
                     inst.push(GlowInstance {
                         position: [center[0] - len / 2.0, center[1] - STREAK_WIDTH / 2.0],
                         size: [len, STREAK_WIDTH],
-                        color: with_intensity(p.color, fade * 1.3),
+                        color: with_intensity(p.color, af * fade * 1.3),
                         params: [kind::STREAK, age, p.seed, dir[1].atan2(dir[0])],
                     });
                 }
@@ -404,7 +429,7 @@ impl GlowRenderer {
                     inst.push(GlowInstance {
                         position: [p.pos[0] - s / 2.0, p.pos[1] - s / 2.0],
                         size: [s, s],
-                        color: with_intensity(p.color, fade * SMOKE_INTENSITY),
+                        color: with_intensity(p.color, af * fade * SMOKE_INTENSITY),
                         params: [kind::SMOKE, age, p.seed, 0.0],
                     });
                 }
@@ -414,7 +439,7 @@ impl GlowRenderer {
                     inst.push(GlowInstance {
                         position: [p.pos[0] - s / 2.0, p.pos[1] - s / 2.0],
                         size: [s, s],
-                        color: with_intensity(p.color, t.powf(1.4) * flicker * 1.6),
+                        color: with_intensity(p.color, af * t.powf(1.4) * flicker * 1.6),
                         params: [kind::SPARK, age, p.seed, 0.0],
                     });
                 }
@@ -463,7 +488,7 @@ impl GlowRenderer {
         self.particles.push(Particle {
             kind: PKind::Streak,
             pos: [cx, k.y - 4.0],
-            vel: [self.rng.range(-30.0, 30.0), -STREAK_LIFT * 1.5],
+            vel: [self.rng.range(-15.0, 15.0), -STREAK_LIFT * 0.2], // lazy launch
             accel: STREAK_LIFT,
             drag: 0.5, // loose grip: glides, curves slowly
             life,
