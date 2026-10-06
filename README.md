@@ -1,5 +1,29 @@
 ![Neothesia Baner](https://github.com/user-attachments/assets/383438e5-80cd-49d2-af30-85afe5d79c6b)
 
+> ## ✨ This fork: Neothesia *juice*
+>
+> ![Juiced effects](juiced_effects.png)
+>
+> A visual-effects pass on Neothesia, living on the [`juice`](https://github.com/bosman-solutions/Neothesia/tree/juice) branch:
+>
+> - **Gold keyline**: a warm glowing edge across the top of the keyboard.
+> - **Flares**: a flat, white-hot bloom wherever a key is struck.
+> - **Glitter dust**: fine twinkling motes carried by a curl-noise flow field, so every hit billows into drifting clouds and wisps.
+> - **Embers**: slivers that launch lazily, catch the updraft, and whip away.
+> - **Glass notes**: falling notes get a smoked translucent body, light streaks, a bright rim, and a soft glow.
+> - Effects stay in the lower third of the screen and fade out as they rise.
+>
+> **Install** (Arch; other distros print the deps they need). Builds from source into `~/.local` as `neothesia-juice`, alongside any stock Neothesia:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/bosman-solutions/Neothesia/juice/install.sh | bash
+> ```
+>
+> Rerun to update; `install.sh --uninstall` to remove.
+>
+> **Tuning**: every effect has knobs at the top of [`neothesia-core/src/render/glow/renderer.rs`](neothesia-core/src/render/glow/renderer.rs). `FX_TEMPO` sets overall speed, `FX_CEILING` sets how high effects reach, and the `DUST_*`, `FLOW_*`, and `STREAK_*` knobs shape the glitter and embers. All FX live in `render/glow/` behind upstream's `GlowRenderer` API, so the fork rebases cleanly onto [upstream](https://github.com/PolyMeilex/Neothesia).
+>
+> Everything below is upstream's README. All credit for Neothesia itself goes to [PolyMeilex](https://github.com/PolyMeilex) and contributors.
 
 # Neothesia
 
